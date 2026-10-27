@@ -2822,11 +2822,17 @@ function renderSpaceList() {
   const myReqs = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id);
   const myReq = myReqs[0];
   const pendingReqs = state.isAdmin ? (state.data.spaceRequests || []).filter(r => r.status === "pending") : [];
+  const _spCfg = parseInt(appSetting("space_price"), 10);
+  const spacePrice = isNaN(_spCfg) || _spCfg < 0 ? 100 : _spCfg;
+  const myBalance = balanceFor(myUid());
   const headBtn = state.isAdmin
     ? '<button class="btn" onclick="openSpaceForm()">＋ 新建写作空间</button>'
     : canCreateSpace()
       ? '<button class="btn" onclick="openSpaceForm()">＋ 新建我的写作空间</button>'
-      : '<button class="btn" onclick="openSpaceRequest()">📝 申请使用论文空间</button>';
+      : `<div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost" onclick="openSpaceRequest()">📝 申请审批</button>
+          <button class="btn" ${myBalance < spacePrice ? 'disabled style="opacity:.55;cursor:not-allowed"' : ""} onclick="openSpaceUnlock()" title="${myBalance < spacePrice ? "积分不足（当前 " + myBalance + " 分）" : "用积分立即开通"}">⚡ 积分开通（${spacePrice} 分）</button>
+        </div>`;
   let reqPanel = "";
   if (!state.isAdmin && myReq) {
     reqPanel = myReq.status === "pending"
@@ -2835,8 +2841,15 @@ function renderSpaceList() {
         ? `<div class="panel" style="border-left:4px solid #e05a4e;padding:12px 14px;margin-bottom:14px;font-size:13.5px">❌ 上次申请未通过${myReq.review_note ? "：" + esc(myReq.review_note) : ""}。可以修改理由后重新申请。</div>`
         : "";
   }
-  const adminReview = state.isAdmin && pendingReqs.length ? `<div class="panel" style="border-left:4px solid var(--primary);padding:12px 14px;margin-bottom:14px">
-    <b style="font-size:14px">📝 论文空间使用申请（${pendingReqs.length} 条待审）</b>
+  const adminPanel = state.isAdmin ? `<div class="panel" style="border-left:4px solid var(--primary);padding:12px 14px;margin-bottom:14px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px">
+      <b>⚡ 积分开通价格</b>
+      <input id="space-price-input" type="number" min="0" max="10000" value="${spacePrice}" style="width:90px">
+      <span>分</span>
+      <button class="btn btn-ghost btn-sm" onclick="saveSpacePrice()">保存</button>
+      <span class="hint">组员可用积分直接开通建空间权限（无需审批）；设为 0 则免费开通</span>
+    </div>
+    ${pendingReqs.length ? `<div style="margin-top:10px"><b style="font-size:14px">📝 审批申请（${pendingReqs.length} 条待审）</b>
     ${pendingReqs.map(r => `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
       <div style="font-size:13.5px"><b>${esc(r.name || "组员")}</b> · ${fmtShort(r.created_at)}</div>
       <div class="hint" style="margin:4px 0 8px">申请理由：${esc(r.reason)}</div>
@@ -2844,12 +2857,12 @@ function renderSpaceList() {
         <button class="btn btn-sm" onclick="reviewSpaceRequest(${r.id}, true)">✅ 通过</button>
         <button class="btn btn-ghost btn-sm" onclick="reviewSpaceRequest(${r.id}, false)">❌ 退回</button>
       </div>
-    </div>`).join("")}
+    </div>`).join("")}</div>` : ""}
   </div>` : "";
   return `
     <div class="page-head"><h2>论文写作空间</h2>${headBtn}</div>
     <p class="hint" style="margin:-6px 0 14px">每个空间都是私密的：只有创建者和被邀请的组员能看到并进入——<b>没被拉进空间的人（包括组长）都看不到里面的内容</b>。组员通过申请后即可开辟自己的空间。空间里可以畅聊（文字 / 表情 / 图片）、上传实验数据和论文稿件，有新消息会第一时间提醒。</p>
-    ${adminReview}${reqPanel}
+    ${adminPanel}${reqPanel}
     ${list.length ? `<div class="sp-grid">${list.map(s => {
       const owner = isSpaceOwner(s);
       const members = state.data.spaceMembers.filter(m => m.space_id === s.id);
@@ -2865,13 +2878,60 @@ function renderSpaceList() {
         ${unread ? `<div class="sp-card-unread">💬 ${unread} 条新消息</div>` : ""}
       </div>`;
     }).join("")}</div>`
-    : `<div class="panel"><div class="empty">${state.isAdmin ? "还没有写作空间，点右上角「新建写作空间」创建第一个吧" : canCreateSpace() ? "还没有空间，点右上角「新建我的写作空间」开辟属于自己的空间" : "你还没有论文空间，点右上角「申请使用」，组长通过后就能开辟自己的私密空间"}</div></div>`}
+    : `<div class="panel"><div class="empty">${state.isAdmin ? "还没有写作空间，点右上角「新建写作空间」创建第一个吧" : canCreateSpace() ? "还没有空间，点右上角「新建我的写作空间」开辟属于自己的空间" : "你还没有论文空间：点右上角「申请审批」等组长通过，或用积分「⚡ 积分开通」立即解锁"}</div></div>`}
   `;
 }
 
+/* 组长设置积分开通价格 */
+async function saveSpacePrice() {
+  const el = $("space-price-input");
+  const v = parseInt(el ? el.value : "", 10);
+  if (isNaN(v) || v < 0 || v > 10000) { toast("请输入 0 ~ 10000 之间的整数"); return; }
+  const ok = await saveAppSetting("space_price", String(v));
+  if (ok) { toast("✅ 已保存，积分开通价格：" + v + " 分"); render(); }
+}
+
+/* 组员用积分开通论文空间权限 */
+function openSpaceUnlock() {
+  if (!canCreateSpace()) { /* 未开通才允许 */ }
+  const _spCfg = parseInt(appSetting("space_price"), 10);
+  const price = isNaN(_spCfg) || _spCfg < 0 ? 100 : _spCfg;
+  const bal = balanceFor(myUid());
+  $("modal-box").innerHTML = `
+    <h3>⚡ 积分开通论文空间</h3>
+    <div class="panel" style="margin:10px 0;padding:12px 14px;font-size:13.5px;line-height:2">
+      <div>开通价格：<b style="color:var(--primary)">${price} 分</b></div>
+      <div>当前可用积分：<b>${bal} 分</b></div>
+      <div>开通后剩余：<b>${Math.max(0, bal - price)} 分</b></div>
+    </div>
+    <p class="hint" style="margin-bottom:8px">开通后即可创建自己的论文写作空间（私密，只有你邀请的人能进）。积分来自打卡、收录文献等。</p>
+    <div class="modal-btns">
+      <button type="button" class="btn btn-cancel" onclick="closeModal()">再想想</button>
+      <button type="button" class="btn" id="btn-space-unlock" onclick="doSpaceUnlock(this)">确认开通</button>
+    </div>`;
+  $("modal-mask").classList.add("show");
+}
+
+async function doSpaceUnlock(btn) {
+  btn.disabled = true; btn.textContent = "开通中…";
+  try {
+    const res = await cloud.database.rpc("unlock_space_with_points");
+    const s = String((res && res.data) || "");
+    if (s === "nobalance") { toast("积分不足，先攒攒吧～（打卡、收录文献都能赚积分）"); btn.disabled = false; btn.textContent = "确认开通"; return; }
+    if (s === "already") { toast("你已经有论文空间权限了"); }
+    else if (s === "notmember") { toast("只有小组成员可以开通"); btn.disabled = false; btn.textContent = "确认开通"; return; }
+    else { toast("🎉 开通成功！现在可以创建自己的论文空间了"); }
+    closeModal();
+    await Promise.all([loadTable("spaceRequests"), loadTable("points")]);
+    render();
+  } catch (err) {
+    toast("开通失败：" + (err.message || "请稍后重试"));
+    btn.disabled = false; btn.textContent = "确认开通";
+  }
+}
+
 /* 组员申请使用论文空间 */
-function openSpaceRequest() {
-  const myReq = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id)[0];
+function openSpaceRequest() {  const myReq = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id)[0];
   $("modal-box").innerHTML = `
     <h3>📝 申请使用论文空间</h3>
     <p class="hint" style="margin-bottom:8px">通过后你就可以创建自己的论文写作空间（私密，只有你邀请的人能进）。</p>
