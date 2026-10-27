@@ -676,6 +676,7 @@ const state = {
   aiSeconds: 0,
   aiExpireAt: 0,
   aiAccessList: [],
+  spaceAccessList: [],
   groupFilter: "all",
   docFilter: "all",
   ai: {
@@ -926,7 +927,7 @@ async function startApp() {
     loadTable("forumThreads"), loadTable("forumReplies"),
     loadSkills(),
   ]);
-  if (state.isAdmin) await loadAccessInfo();
+  if (state.isAdmin) { await loadAccessInfo(); await loadSpaceAccess(); }
   else await refreshMyAiAccess();
   if (state.isAdmin) await loadTable("bindRequests");
   initMsgWatermark();
@@ -1307,9 +1308,14 @@ async function pollUpdates() {
       if (state.isAdmin && r.status === "pending") {
         sysNotify("spreq-p:" + r.id, "📝 论文空间使用申请", (r.name || "组员") + " 申请开通论文空间，去「论文空间」页查看理由", "space");
       } else if (!state.isAdmin && r.uid === myUid() && r.reviewed_at) {
-        sysNotify("spreq-r:" + r.id + ":" + r.status,
-          r.status === "approved" ? "✅ 论文空间申请已通过" : "❌ 论文空间申请未通过",
-          "现在可以创建自己的论文空间了" + (r.review_note ? " · 组长留言：" + r.review_note : ""), "space");
+        if (r.status === "revoked") {
+          sysNotify("spreq-r:" + r.id + ":" + r.status, "🚫 论文空间权限已被收回",
+            (r.review_note ? "组长说明：" + r.review_note : "如有疑问请联系组长"), "space");
+        } else {
+          sysNotify("spreq-r:" + r.id + ":" + r.status,
+            r.status === "approved" ? "✅ 论文空间申请已通过" : "❌ 论文空间申请未通过",
+            "现在可以创建自己的论文空间了" + (r.review_note ? " · 组长留言：" + r.review_note : ""), "space");
+        }
       }
     });
   }
@@ -2825,22 +2831,51 @@ function renderSpaceList() {
   const _spCfg = parseInt(appSetting("space_price"), 10);
   const spacePrice = isNaN(_spCfg) || _spCfg < 0 ? 100 : _spCfg;
   const myBalance = balanceFor(myUid());
+  const revoked = !!(myReq && myReq.status === "revoked");
   const headBtn = state.isAdmin
     ? '<button class="btn" onclick="openSpaceForm()">＋ 新建写作空间</button>'
     : canCreateSpace()
       ? '<button class="btn" onclick="openSpaceForm()">＋ 新建我的写作空间</button>'
-      : `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      : revoked
+        ? '<button class="btn btn-ghost" onclick="openSpaceRequest()">📝 重新申请</button>'
+        : `<div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-ghost" onclick="openSpaceRequest()">📝 申请审批</button>
           <button class="btn" ${myBalance < spacePrice ? 'disabled style="opacity:.55;cursor:not-allowed"' : ""} onclick="openSpaceUnlock()" title="${myBalance < spacePrice ? "积分不足（当前 " + myBalance + " 分）" : "用积分立即开通"}">⚡ 积分开通（${spacePrice} 分）</button>
         </div>`;
   let reqPanel = "";
   if (!state.isAdmin && myReq) {
-    reqPanel = myReq.status === "pending"
-      ? `<div class="panel" style="border-left:4px solid #f59e0b;padding:12px 14px;margin-bottom:14px;font-size:13.5px">⏳ 你的论文空间使用申请已提交，等待组长审核。</div>`
-      : myReq.status === "rejected"
-        ? `<div class="panel" style="border-left:4px solid #e05a4e;padding:12px 14px;margin-bottom:14px;font-size:13.5px">❌ 上次申请未通过${myReq.review_note ? "：" + esc(myReq.review_note) : ""}。可以修改理由后重新申请。</div>`
-        : "";
+    if (myReq.status === "pending") {
+      reqPanel = `<div class="panel" style="border-left:4px solid #f59e0b;padding:12px 14px;margin-bottom:14px;font-size:13.5px">⏳ 你的论文空间使用申请已提交，等待组长审核。</div>`;
+    } else if (myReq.status === "rejected") {
+      reqPanel = `<div class="panel" style="border-left:4px solid #e05a4e;padding:12px 14px;margin-bottom:14px;font-size:13.5px">❌ 上次申请未通过${myReq.review_note ? "：" + esc(myReq.review_note) : ""}。可以修改理由后重新申请。</div>`;
+    } else if (myReq.status === "revoked") {
+      reqPanel = `<div class="panel" style="border-left:4px solid #e05a4e;padding:12px 14px;margin-bottom:14px;font-size:13.5px;line-height:1.9">🚫 你的论文空间使用权限已被组长收回${myReq.review_note ? "：" + esc(myReq.review_note) : ""}。<br>如有疑问请联系组长；确认没问题后可以「重新申请」，由组长再次审核。</div>`;
+    }
   }
+  const grantedList = (state.spaceAccessList || []).filter(a => a.status === "approved");
+  const revokedList = (state.spaceAccessList || []).filter(a => a.status === "revoked");
+  const accessRow = a => {
+    const cnt = Number(a.space_count || 0), fz = Number(a.frozen_count || 0);
+    const meta = cnt ? ` · ${cnt} 个空间${fz ? `（已冻结 ${fz}）` : ""}` : " · 未建空间";
+    return a.status === "approved"
+      ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px">
+          <span style="flex:1;min-width:130px"><b>${esc(a.name || "组员")}</b><span class="hint">${meta}</span></span>
+          <button class="btn btn-ghost btn-sm" onclick="openRevokeSpaceAccess('${a.uid}')">🚫 收回</button>
+        </div>`
+      : `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px">
+          <span style="flex:1;min-width:130px"><b>${esc(a.name || "组员")}</b><span class="hint" style="color:var(--red)"> · 已收回${fz ? `（空间冻结中 ${fz}）` : ""}</span></span>
+          <button class="btn btn-ghost btn-sm" onclick="restoreSpaceAccess('${a.uid}')">✅ 恢复</button>
+        </div>`;
+  };
+  const accessPanel = state.isAdmin ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <b style="font-size:14px">🔐 论文空间权限</b>
+      <span class="hint">已开通 ${grantedList.length} 人 · 已收回 ${revokedList.length} 人</span>
+      <button class="btn btn-ghost btn-sm" onclick="loadSpaceAccess().then(render)">刷新</button>
+    </div>
+    <div class="hint" style="margin:4px 0 6px">组长可随时收回组员的空间使用权限；收回时可同时冻结其名下空间（对方及其邀请的组员都打不开，数据保留，可随时恢复）。</div>
+    ${grantedList.length || revokedList.length ? grantedList.map(accessRow).join("") + revokedList.map(accessRow).join("") : '<div class="hint">暂时还没有组员开通或申请。</div>'}
+  </div>` : "";
   const adminPanel = state.isAdmin ? `<div class="panel" style="border-left:4px solid var(--primary);padding:12px 14px;margin-bottom:14px">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px">
       <b>⚡ 积分开通价格</b>
@@ -2858,6 +2893,7 @@ function renderSpaceList() {
         <button class="btn btn-ghost btn-sm" onclick="reviewSpaceRequest(${r.id}, false)">❌ 退回</button>
       </div>
     </div>`).join("")}</div>` : ""}
+    ${accessPanel}
   </div>` : "";
   return `
     <div class="page-head"><h2>论文写作空间</h2>${headBtn}</div>
@@ -2891,9 +2927,80 @@ async function saveSpacePrice() {
   if (ok) { toast("✅ 已保存，积分开通价格：" + v + " 分"); render(); }
 }
 
+/* 组长：论文空间权限管理（收回 / 恢复） */
+async function loadSpaceAccess() {
+  if (!state.isAdmin) { state.spaceAccessList = []; return; }
+  try {
+    const res = await cloud.database.rpc("admin_space_access_list");
+    state.spaceAccessList = (res && res.data) || [];
+  } catch (e) { state.spaceAccessList = []; }
+}
+
+function openRevokeSpaceAccess(uid) {
+  const a = (state.spaceAccessList || []).find(x => String(x.uid) === String(uid)) || {};
+  const cnt = Number(a.space_count || 0);
+  $("modal-box").innerHTML = `
+    <h3>🚫 收回论文空间权限</h3>
+    <p class="hint" style="margin-bottom:8px">对象：<b>${esc(a.name || "组员")}</b>${cnt ? `（名下 ${cnt} 个空间）` : "（还未建空间）"}</p>
+    <form onsubmit="return doRevokeSpaceAccess(event, '${uid}')">
+      <div class="field"><label>收回原因（会展示给对方）</label>
+        <textarea id="f-revoke-note" rows="3" placeholder="如：空间内容不合规 / 暂时不需要论文空间 / 已毕业"></textarea></div>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:13.5px;margin:6px 0 2px;cursor:${cnt ? "pointer" : "not-allowed"}">
+        <input type="checkbox" id="f-revoke-freeze" ${cnt ? "checked" : "disabled"} style="margin-top:3px">
+        <span>同时冻结其名下已建空间
+          <br><span class="hint">冻结后对方及被邀请的组员都无法打开、看不到内容，但数据完整保留，随时可以恢复</span></span>
+      </label>
+      <div class="modal-btns">
+        <button type="button" class="btn btn-cancel" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn btn-danger">确认收回</button>
+      </div>
+    </form>`;
+  $("modal-mask").classList.add("show");
+}
+
+async function doRevokeSpaceAccess(e, uid) {
+  e.preventDefault();
+  const note = ($("f-revoke-note").value || "").trim();
+  const freeze = !!($("f-revoke-freeze") && $("f-revoke-freeze").checked);
+  const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = "处理中…";
+  try {
+    const res = await cloud.database.rpc("admin_revoke_space_access", { p_uid: uid, p_freeze: freeze, p_note: note });
+    const s = String((res && res.data) || "");
+    if (s === "notadmin") { toast("只有组长可以操作"); btn.disabled = false; btn.textContent = "确认收回"; return false; }
+    closeModal();
+    toast(freeze ? "✅ 已收回权限，其空间已冻结" : "✅ 已收回权限");
+    await Promise.all([loadTable("spaceRequests"), loadTable("spaces"), loadSpaceAccess()]);
+    render();
+  } catch (err) {
+    toast("操作失败：" + (err.message || "请重试"));
+    btn.disabled = false; btn.textContent = "确认收回";
+  }
+  return false;
+}
+
+async function restoreSpaceAccess(uid) {
+  const a = (state.spaceAccessList || []).find(x => String(x.uid) === String(uid)) || {};
+  const fz = Number(a.frozen_count || 0);
+  if (!confirm(`恢复「${a.name || "组员"}」的论文空间权限？` + (fz ? `\n同时解冻其名下 ${fz} 个空间。` : ""))) return;
+  try {
+    const res = await cloud.database.rpc("admin_grant_space_access", { p_uid: uid, p_unfreeze: true });
+    const s = String((res && res.data) || "");
+    if (s === "notadmin") { toast("只有组长可以操作"); return; }
+    toast("✅ 已恢复权限" + (fz ? "，空间已解冻" : ""));
+    await Promise.all([loadTable("spaceRequests"), loadTable("spaces"), loadSpaceAccess()]);
+    render();
+  } catch (err) {
+    toast("操作失败：" + (err.message || "请重试"));
+  }
+}
+
+
 /* 组员用积分开通论文空间权限 */
 function openSpaceUnlock() {
-  if (!canCreateSpace()) { /* 未开通才允许 */ }
+  if (canCreateSpace()) { toast("你已经有论文空间权限了"); return; }
+  const _lastReq = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id)[0];
+  if (_lastReq && _lastReq.status === "revoked") { toast("组长已收回你的空间权限，请重新提交申请或联系组长"); return; }
   const _spCfg = parseInt(appSetting("space_price"), 10);
   const price = isNaN(_spCfg) || _spCfg < 0 ? 100 : _spCfg;
   const bal = balanceFor(myUid());
@@ -2918,6 +3025,7 @@ async function doSpaceUnlock(btn) {
     const res = await cloud.database.rpc("unlock_space_with_points");
     const s = String((res && res.data) || "");
     if (s === "nobalance") { toast("积分不足，先攒攒吧～（打卡、收录文献都能赚积分）"); btn.disabled = false; btn.textContent = "确认开通"; return; }
+    if (s === "revoked") { toast("组长已收回你的空间权限，无法用积分开通，请重新提交申请"); btn.disabled = false; btn.textContent = "确认开通"; return; }
     if (s === "already") { toast("你已经有论文空间权限了"); }
     else if (s === "notmember") { toast("只有小组成员可以开通"); btn.disabled = false; btn.textContent = "确认开通"; return; }
     else { toast("🎉 开通成功！现在可以创建自己的论文空间了"); }
@@ -2935,6 +3043,7 @@ function openSpaceRequest() {  const myReq = (state.data.spaceRequests || []).fi
   $("modal-box").innerHTML = `
     <h3>📝 申请使用论文空间</h3>
     <p class="hint" style="margin-bottom:8px">通过后你就可以创建自己的论文写作空间（私密，只有你邀请的人能进）。</p>
+    ${myReq && myReq.status === "revoked" ? `<p class="hint" style="margin-bottom:8px;color:var(--red)">⚠️ 你的权限此前被组长收回${myReq.review_note ? "：" + esc(myReq.review_note) : ""}，请说明这次申请的理由。</p>` : ""}
     <form onsubmit="return submitSpaceRequest(event)">
       <div class="field"><label>申请理由 *</label>
         <textarea id="f-sreq-reason" rows="4" placeholder="例如：即将开始毕业论文写作，需要和同方向同学共享文献与实验数据…">${esc(myReq && myReq.status === "rejected" ? myReq.reason || "" : "")}</textarea></div>
