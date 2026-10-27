@@ -922,6 +922,7 @@ async function startApp() {
     loadTable("announcements"),     loadTable("documents"), loadTable("groups"),
     loadTable("literature"), loadTable("points"), loadTable("rewards"), loadTable("redemptions"),
     loadTable("bindings"), loadTable("spaceMessages"), loadTable("appSettings"),
+    loadTable("spaceRequests"),
     loadTable("forumThreads"), loadTable("forumReplies"),
     loadSkills(),
   ]);
@@ -1054,6 +1055,7 @@ async function loadTable(name) {
     : name === "spaceFiles" ? "space_files"
     : name === "spaceMessages" ? "space_messages"
     : name === "spaceReads" ? "space_reads"
+    : name === "spaceRequests" ? "space_requests"
     : name === "bindings" ? "user_bindings"
     : name === "bindRequests" ? "bind_requests"
     : name === "appSettings" ? "app_settings"
@@ -1249,7 +1251,8 @@ async function pollUpdates() {
   const before = newItems().count;
   const prevMemberCount = state.data.members.length;
   const prevBind = (state.data.bindRequests || []).filter(r => r.status === "pending").length;
-  const tables = ["tasks", "announcements", "meetings", "points", "rewards", "redemptions", "members", "documents", "literature", "groups", "bindings", "spaceMessages", "forumThreads", "forumReplies"];
+  const prevSpaceReq = (state.data.spaceRequests || []).filter(r => r.status === "pending").length;
+  const tables = ["tasks", "announcements", "meetings", "points", "rewards", "redemptions", "members", "documents", "literature", "groups", "bindings", "spaceMessages", "forumThreads", "forumReplies", "spaceRequests"];
   if (state.isAdmin) tables.push("bindRequests");
   if (state.tab === "space") tables.push("spaces", "spaceMembers");
   if (state.tab === "space" && state.spaceId) tables.push("spaceFiles");
@@ -1299,11 +1302,24 @@ async function pollUpdates() {
       }
     });
     forumReplyWm = Math.max(forumReplyWm, ...(state.data.forumReplies || []).map(r => r.id || 0));
+    // 论文空间申请：组长收到新申请；申请人收到审核结果
+    (state.data.spaceRequests || []).forEach(r => {
+      if (state.isAdmin && r.status === "pending") {
+        sysNotify("spreq-p:" + r.id, "📝 论文空间使用申请", (r.name || "组员") + " 申请开通论文空间，去「论文空间」页查看理由", "space");
+      } else if (!state.isAdmin && r.uid === myUid() && r.reviewed_at) {
+        sysNotify("spreq-r:" + r.id + ":" + r.status,
+          r.status === "approved" ? "✅ 论文空间申请已通过" : "❌ 论文空间申请未通过",
+          "现在可以创建自己的论文空间了" + (r.review_note ? " · 组长留言：" + r.review_note : ""), "space");
+      }
+    });
   }
   _notifyArmed = true;
   if (state.data.members.length > prevMemberCount) toast("👋 有新成员加入了小组");
   if (state.isAdmin && (state.data.bindRequests || []).filter(r => r.status === "pending").length > prevBind) {
     toast("📱 有新的手机号绑定申请，请到「成员」页确认");
+  }
+  if (state.isAdmin && (state.data.spaceRequests || []).filter(r => r.status === "pending").length > prevSpaceReq) {
+    toast("📝 有新的论文空间使用申请，请到「论文空间」页审核");
   }
   checkMeetingSoon();
   // 数据有变化才重绘，且保留正在输入的内容；智能助手页不整页重绘（避免打断对话/流式输出）
@@ -2797,13 +2813,43 @@ function scrollSpaceMsgs() {
   if (box) box.scrollTop = box.scrollHeight;
 }
 
+function canCreateSpace() {
+  return state.isAdmin || (state.data.spaceRequests || []).some(r => r.uid === myUid() && r.status === "approved");
+}
+
 function renderSpaceList() {
   const list = state.data.spaces.slice().sort((a, b) => b.id - a.id);
+  const myReqs = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id);
+  const myReq = myReqs[0];
+  const pendingReqs = state.isAdmin ? (state.data.spaceRequests || []).filter(r => r.status === "pending") : [];
+  const headBtn = state.isAdmin
+    ? '<button class="btn" onclick="openSpaceForm()">＋ 新建写作空间</button>'
+    : canCreateSpace()
+      ? '<button class="btn" onclick="openSpaceForm()">＋ 新建我的写作空间</button>'
+      : '<button class="btn" onclick="openSpaceRequest()">📝 申请使用论文空间</button>';
+  let reqPanel = "";
+  if (!state.isAdmin && myReq) {
+    reqPanel = myReq.status === "pending"
+      ? `<div class="panel" style="border-left:4px solid #f59e0b;padding:12px 14px;margin-bottom:14px;font-size:13.5px">⏳ 你的论文空间使用申请已提交，等待组长审核。</div>`
+      : myReq.status === "rejected"
+        ? `<div class="panel" style="border-left:4px solid #e05a4e;padding:12px 14px;margin-bottom:14px;font-size:13.5px">❌ 上次申请未通过${myReq.review_note ? "：" + esc(myReq.review_note) : ""}。可以修改理由后重新申请。</div>`
+        : "";
+  }
+  const adminReview = state.isAdmin && pendingReqs.length ? `<div class="panel" style="border-left:4px solid var(--primary);padding:12px 14px;margin-bottom:14px">
+    <b style="font-size:14px">📝 论文空间使用申请（${pendingReqs.length} 条待审）</b>
+    ${pendingReqs.map(r => `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <div style="font-size:13.5px"><b>${esc(r.name || "组员")}</b> · ${fmtShort(r.created_at)}</div>
+      <div class="hint" style="margin:4px 0 8px">申请理由：${esc(r.reason)}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="reviewSpaceRequest(${r.id}, true)">✅ 通过</button>
+        <button class="btn btn-ghost btn-sm" onclick="reviewSpaceRequest(${r.id}, false)">❌ 退回</button>
+      </div>
+    </div>`).join("")}
+  </div>` : "";
   return `
-    <div class="page-head"><h2>论文写作空间</h2>
-      ${state.isAdmin ? '<button class="btn" onclick="openSpaceForm()">＋ 新建写作空间</button>' : ""}
-    </div>
-    <p class="hint" style="margin:-6px 0 14px">每个空间都是私密的：只有创建者和被邀请的组员能看到并进入。空间里可以畅聊（文字 / 表情 / 图片）、上传实验数据和论文稿件，有新消息会第一时间提醒。</p>
+    <div class="page-head"><h2>论文写作空间</h2>${headBtn}</div>
+    <p class="hint" style="margin:-6px 0 14px">每个空间都是私密的：只有创建者和被邀请的组员能看到并进入——<b>没被拉进空间的人（包括组长）都看不到里面的内容</b>。组员通过申请后即可开辟自己的空间。空间里可以畅聊（文字 / 表情 / 图片）、上传实验数据和论文稿件，有新消息会第一时间提醒。</p>
+    ${adminReview}${reqPanel}
     ${list.length ? `<div class="sp-grid">${list.map(s => {
       const owner = isSpaceOwner(s);
       const members = state.data.spaceMembers.filter(m => m.space_id === s.id);
@@ -2819,8 +2865,74 @@ function renderSpaceList() {
         ${unread ? `<div class="sp-card-unread">💬 ${unread} 条新消息</div>` : ""}
       </div>`;
     }).join("")}</div>`
-    : `<div class="panel"><div class="empty">${state.isAdmin ? "还没有写作空间，点右上角「新建写作空间」创建第一个吧" : "还没有被邀请进入任何写作空间，等组长邀请你"}</div></div>`}
+    : `<div class="panel"><div class="empty">${state.isAdmin ? "还没有写作空间，点右上角「新建写作空间」创建第一个吧" : canCreateSpace() ? "还没有空间，点右上角「新建我的写作空间」开辟属于自己的空间" : "你还没有论文空间，点右上角「申请使用」，组长通过后就能开辟自己的私密空间"}</div></div>`}
   `;
+}
+
+/* 组员申请使用论文空间 */
+function openSpaceRequest() {
+  const myReq = (state.data.spaceRequests || []).filter(r => r.uid === myUid()).sort((a, b) => b.id - a.id)[0];
+  $("modal-box").innerHTML = `
+    <h3>📝 申请使用论文空间</h3>
+    <p class="hint" style="margin-bottom:8px">通过后你就可以创建自己的论文写作空间（私密，只有你邀请的人能进）。</p>
+    <form onsubmit="return submitSpaceRequest(event)">
+      <div class="field"><label>申请理由 *</label>
+        <textarea id="f-sreq-reason" rows="4" placeholder="例如：即将开始毕业论文写作，需要和同方向同学共享文献与实验数据…">${esc(myReq && myReq.status === "rejected" ? myReq.reason || "" : "")}</textarea></div>
+      <div class="form-msg" id="form-err" style="text-align:left"></div>
+      <div class="modal-btns">
+        <button type="button" class="btn btn-cancel" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn">提交申请</button>
+      </div>
+    </form>`;
+  $("modal-mask").classList.add("show");
+}
+
+async function submitSpaceRequest(e) {
+  e.preventDefault();
+  const reason = $("f-sreq-reason").value.trim();
+  if (!reason) { $("form-err").textContent = "请填写申请理由"; return false; }
+  const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = "提交中…";
+  const { error } = await cloud.database.from("space_requests").insert({ uid: myUid(), name: myName() || "组员", reason });
+  if (error) { $("form-err").textContent = "提交失败：" + (error.message || "请重试"); btn.disabled = false; btn.textContent = "提交申请"; return false; }
+  closeModal();
+  toast("✅ 申请已提交，等组长审核");
+  await loadTable("spaceRequests");
+  render();
+  return false;
+}
+
+/* 组长审核 */
+function reviewSpaceRequest(id, pass) {
+  const r = (state.data.spaceRequests || []).find(x => x.id === id);
+  if (!r) return;
+  $("modal-box").innerHTML = `
+    <h3>${pass ? "✅ 通过申请" : "❌ 退回申请"}</h3>
+    <p class="hint" style="margin-bottom:8px"><b>${esc(r.name || "组员")}</b> 的申请理由：${esc(r.reason)}</p>
+    <form onsubmit="return doReviewSpaceRequest(event, ${id}, ${pass ? "true" : "false"})">
+      <div class="field"><label>${pass ? "留言（可选）" : "退回原因（会展示给申请人）"}</label>
+        <textarea id="f-sreq-note" rows="3" placeholder="${pass ? "如：通过啦，有需要随时找我" : "如：先完成开题再申请"}"></textarea></div>
+      <div class="modal-btns">
+        <button type="button" class="btn btn-cancel" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn">${pass ? "确认通过" : "确认退回"}</button>
+      </div>
+    </form>`;
+  $("modal-mask").classList.add("show");
+}
+
+async function doReviewSpaceRequest(e, id, pass) {
+  e.preventDefault();
+  const note = $("f-sreq-note").value.trim();
+  if (!pass && !note) { toast("退回时请填写原因"); return false; }
+  const { error } = await cloud.database.from("space_requests").update({
+    status: pass ? "approved" : "rejected", review_note: note, reviewed_at: new Date().toISOString(),
+  }).eq("id", id).select();
+  if (error) { toast("操作失败：" + (error.message || "请重试")); return false; }
+  closeModal();
+  toast(pass ? "✅ 已通过，对方现在可以创建空间了" : "已退回");
+  await loadTable("spaceRequests");
+  render();
+  return false;
 }
 
 const SP_COLORS = ["#4f5ce5", "#16a34a", "#ea8a0d", "#dc2626", "#0ea5e9", "#8b5cf6", "#d946ef", "#14b8a6"];
@@ -3116,7 +3228,7 @@ function renderSpaceDetail() {
 }
 
 function openSpaceForm(id) {
-  if (!state.isAdmin) return;
+  if (!canCreateSpace()) { toast("请先申请论文空间使用权限"); return; }
   const sp = id ? spaceById(id) : null;
   const selected = id ? state.data.spaceMembers.filter(m => m.space_id === id).map(m => m.uid) : [];
   const cands = state.data.members.filter(m => m.uid);
