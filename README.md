@@ -31,8 +31,8 @@ X 科研实践小组的在线协作工作台，单文件前端应用（HTML + JS
 
 | 文件 | 说明 |
 | --- | --- |
-| `index.html` | 入口跳转页（自动进入 `/go/` 正式入口） |
-| `go/index.html` | 正式入口页（自动跳转到可用的工作台） |
-| `archive/index.html` | 应用源码存档（只读展示；云服务按域名绑定，此副本无法登录使用） |
-| `sw.js` / `manifest.webmanifest` | PWA 配置（随正式环境使用） |
+| `index.html` | 应用主体（页面、样式、全部逻辑）；在 github.io 域下打开会自动跳转正式入口 |
+| `go/index.html` | GitHub Pages 正式入口页（自动跳转到可用的工作台） |
+| `sw.js` | Service Worker：离线缓存 + 通知点击跳转 |
+| `manifest.webmanifest` | PWA 配置 |
 | `icon-*.png` | 应用图标 |
