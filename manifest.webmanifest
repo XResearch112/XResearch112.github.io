@@ -1,16 +1,42 @@
 {
+  "id": "./?sharecode=M445EZVXJS",
   "name": "X科研实践小组工作台",
   "short_name": "科研工作台",
   "description": "科研小组在线工作台：任务、文献库、论文空间、会议与积分激励",
+  "lang": "zh-CN",
+  "dir": "ltr",
   "start_url": "./?sharecode=M445EZVXJS",
   "scope": "./",
   "display": "standalone",
-  "orientation": "any",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
   "background_color": "#f4f6fb",
   "theme_color": "#4f5ce5",
+  "categories": ["education", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "icon-192.png?sharecode=M445EZVXJS", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png?sharecode=M445EZVXJS", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png?sharecode=M445EZVXJS", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "任务看板",
+      "short_name": "任务",
+      "url": "./?sharecode=M445EZVXJS#tab=tasks",
+      "icons": [{ "src": "icon-192.png?sharecode=M445EZVXJS", "sizes": "192x192" }]
+    },
+    {
+      "name": "小组论坛",
+      "short_name": "论坛",
+      "url": "./?sharecode=M445EZVXJS#tab=forum",
+      "icons": [{ "src": "icon-192.png?sharecode=M445EZVXJS", "sizes": "192x192" }]
+    },
+    {
+      "name": "论文空间",
+      "short_name": "空间",
+      "url": "./?sharecode=M445EZVXJS#tab=space",
+      "icons": [{ "src": "icon-192.png?sharecode=M445EZVXJS", "sizes": "192x192" }]
+    }
   ]
 }

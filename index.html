@@ -531,6 +531,31 @@ if ("serviceWorker" in navigator) {
   #sdk-error { display: none; color: var(--red); text-align: center; margin-top: 10px; font-size: 13px; }
   .loading { color: var(--muted); text-align: center; padding: 40px 0; }
 
+  /* —— PWA App 化 —— */
+  html, body { overscroll-behavior-y: contain; }
+  header.topbar, nav.tabs, .user-chip { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  button { -webkit-tap-highlight-color: transparent; }
+  #main { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .foot { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+
+  /* 添加到桌面引导条 */
+  #pwa-install { position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 300; }
+  .pwa-card {
+    display: flex; align-items: center; gap: 12px; background: #fff;
+    border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px;
+    box-shadow: 0 10px 30px rgba(28, 35, 51, .16); animation: pwa-up .3s ease;
+  }
+  @keyframes pwa-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .pwa-icon { width: 42px; height: 42px; border-radius: 10px; flex: none; }
+  .pwa-txt { flex: 1; min-width: 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+  .pwa-txt b { display: block; font-size: 14px; }
+  .pwa-txt span { color: var(--muted); font-size: 12.5px; }
+  .pwa-btn { flex: none; border: none; background: var(--primary); color: #fff; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+  .pwa-btn:active { background: var(--primary-dark); }
+  .pwa-x { flex: none; border: none; background: transparent; color: var(--muted); font-size: 14px; padding: 4px; cursor: pointer; }
+  @media (display-mode: standalone) { .pwa-manual { display: none; } }
+  body.pwa-standalone .pwa-manual { display: none; }
+
   @media (max-width: 640px) {
     /* —— 顶栏 —— */
     header.topbar { padding: 0 10px; gap: 6px; height: 52px; }
@@ -685,12 +710,27 @@ if ("serviceWorker" in navigator) {
     </div>
     <div class="user-chip">
       <span id="user-badge" class="badge-member"></span>
+      <button class="btn-link pwa-manual" onclick="openPwaGuide()" title="把工作台装到手机桌面">📲 添加桌面</button>
       <button class="btn-link" onclick="openMyProfile()">我的资料</button>
       <button class="btn-link" onclick="onSignOut()">退出</button>
     </div>
   </header>
   <main id="main"></main>
   <footer class="foot">© 2026 X科研实践小组 · 保留所有权利</footer>
+</div>
+
+<!-- 添加到桌面引导 -->
+<div id="pwa-install" hidden>
+  <div class="pwa-card">
+    <img class="pwa-icon" src="icon-192.png?sharecode=M445EZVXJS" alt="">
+    <div class="pwa-txt">
+      <b>安装「科研工作台」</b>
+      <span id="pwa-ios-steps">iPhone：点底部「分享」按钮 → 选择「添加到主屏幕」</span>
+      <span id="pwa-default-txt">装到手机桌面，像 App 一样秒开，断网也能看缓存的页面</span>
+    </div>
+    <button type="button" class="pwa-btn" id="pwa-btn" onclick="doPwaInstall(this)">安装</button>
+    <button type="button" class="pwa-x" onclick="dismissPwa()" title="暂不安装">✕</button>
+  </div>
 </div>
 
 <!-- 弹窗 -->
@@ -951,6 +991,7 @@ async function startApp() {
   $("gate-view").style.display = "none";
   $("login-view").style.display = "none";
   $("app-view").style.display = "block";
+  pwaMaybeShow();
   renderBadge();
   initNotif();
   $("main").innerHTML = '<div class="loading">正在加载小组数据…</div>';
@@ -5539,6 +5580,50 @@ function openForumSearchResult(id) {
   state.forumThreadId = id;
   switchTab("forum");
 }
+
+/* ================= PWA 添加到桌面 ================= */
+let _pwaEvent = null;
+function pwaStandalone() {
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+}
+function pwaMaybeShow() {
+  if (pwaStandalone()) { document.body.classList.add("pwa-standalone"); return; }
+  if (localStorage.getItem("pwaInstalled") === "1") return;
+  const dismissed = Number(localStorage.getItem("pwaDismissAt") || 0);
+  if (dismissed && Date.now() - dismissed < 7 * 864e5) return;   // 关掉后 7 天内不再打扰
+  const box = $("pwa-install"); if (!box) return;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  $("pwa-ios-steps").style.display = isIOS ? "" : "none";
+  $("pwa-default-txt").style.display = isIOS ? "none" : "";
+  $("pwa-btn").style.display = (!isIOS && _pwaEvent) ? "" : "none";
+  box.hidden = false;
+}
+function openPwaGuide() { localStorage.removeItem("pwaDismissAt"); pwaMaybeShow(); }
+function dismissPwa() {
+  const box = $("pwa-install"); if (box) box.hidden = true;
+  localStorage.setItem("pwaDismissAt", String(Date.now()));
+}
+async function doPwaInstall(btn) {
+  if (!_pwaEvent) { toast("当前浏览器不支持一键安装，请用菜单里的「添加到主屏幕」"); return; }
+  btn.disabled = true;
+  try {
+    _pwaEvent.prompt();
+    const choice = await _pwaEvent.userChoice;
+    if (choice && choice.outcome === "accepted") {
+      localStorage.setItem("pwaInstalled", "1");
+      const box = $("pwa-install"); if (box) box.hidden = true;
+      toast("🎉 已添加到桌面");
+    } else { btn.disabled = false; }
+  } catch (e) { btn.disabled = false; }
+  _pwaEvent = null;
+}
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); _pwaEvent = e; pwaMaybeShow(); });
+window.addEventListener("appinstalled", () => {
+  localStorage.setItem("pwaInstalled", "1");
+  const box = $("pwa-install"); if (box) box.hidden = true;
+  toast("🎉 工作台已安装到桌面");
+});
+if (pwaStandalone()) document.body.classList.add("pwa-standalone");
 
 /* ================= 组长数据备份 ================= */
 async function exportBackup() {

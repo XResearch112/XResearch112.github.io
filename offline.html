@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#4f5ce5">
+<title>离线中 · 科研工作台</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #f4f6fb; font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .box { text-align: center; padding: 32px; }
+  .icon { font-size: 52px; }
+  h1 { font-size: 18px; color: #1c2333; margin: 14px 0 8px; }
+  p { font-size: 13.5px; color: #7a8299; margin: 0 0 20px; line-height: 1.7; }
+  button { border: none; background: #4f5ce5; color: #fff; font-size: 14px; font-weight: 600;
+    padding: 10px 26px; border-radius: 999px; cursor: pointer; }
+  button:active { background: #3c48c4; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">📡</div>
+    <h1>当前处于离线状态</h1>
+    <p>工作台需要联网才能获取最新数据<br>请检查网络后重试</p>
+    <button onclick="location.reload()">重新加载</button>
+  </div>
+</body>
+</html>

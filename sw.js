@@ -3,10 +3,18 @@
    - 页面导航：网络优先，断网时回退缓存（保证每次打开都是最新版，避免旧缓存困扰）
    - CDN 静态库（pdf.js/mammoth/chart.js 等）与图标：缓存优先，离线可用
    - 数据库/存储 API 请求：完全不拦截，保持实时性 */
-const CACHE = "wbench-v3";
+const CACHE = "wbench-v4";
 const CDN = /jsdelivr\.net|unpkg\.com|cdnjs\.cloudflare\.com/;
 
-self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("install", (e) => {
+  e.waitUntil((async () => {
+    try {
+      const c = await caches.open(CACHE);
+      await c.addAll(["offline.html", "icon-192.png", "icon-512.png", "manifest.webmanifest"]);
+    } catch (err) { /* 预缓存失败不阻塞安装 */ }
+    self.skipWaiting();
+  })());
+});
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
@@ -33,7 +41,12 @@ self.addEventListener("fetch", (e) => {
         return res;
       } catch (err) {
         const hit = await caches.match(req);
-        return hit || new Response("离线中，请检查网络", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        if (hit) return hit;
+        try {
+          const off = await caches.match("offline.html");
+          if (off) return off;
+        } catch (e2) {}
+        return new Response("离线中，请检查网络", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
     })());
     return;
