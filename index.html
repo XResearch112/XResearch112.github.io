@@ -475,6 +475,52 @@ if ("serviceWorker" in navigator) {
   .btn-cancel { background: #f0f1f6; color: var(--text); }
   .btn-cancel:hover { background: #e4e6ee; }
 
+  /* 全局搜索框 */
+  .gs-wrap {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; border: 1.5px solid var(--line); border-radius: 999px;
+    background: linear-gradient(135deg, #fbfcff, #f3f5fd);
+    transition: border-color .18s, box-shadow .18s, background .18s;
+  }
+  .gs-wrap:focus-within {
+    border-color: var(--primary); background: #fff;
+    box-shadow: 0 0 0 4px var(--primary-soft), 0 6px 18px rgba(79, 92, 229, .10);
+  }
+  .gs-icon {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--primary-soft); color: var(--primary); transition: background .18s, color .18s;
+  }
+  .gs-wrap:focus-within .gs-icon { background: var(--primary); color: #fff; }
+  .gs-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 14px; color: var(--text); font-family: inherit; }
+  .gs-input::placeholder { color: var(--muted); }
+  .gs-kbd { flex: none; display: flex; gap: 3px; }
+  .gs-kbd kbd {
+    font-family: inherit; font-size: 10.5px; color: var(--muted); background: #fff;
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px;
+  }
+  .gs-clear {
+    flex: none; display: none; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border: none; border-radius: 50%;
+    background: #e8eaf3; color: var(--muted); font-size: 12px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .gs-clear:hover { background: #d9deed; color: var(--text); }
+  @media (max-width: 620px) { .gs-kbd { display: none; } }
+
+  .gs-sec { margin-top: 10px; }
+  .gs-sec-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 10px 4px 4px; letter-spacing: .02em; }
+  .gs-sec-count { font-size: 11px; font-weight: 600; color: var(--primary); background: var(--primary-soft); border-radius: 999px; padding: 0 7px; line-height: 17px; }
+  .gs-item {
+    display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; margin-top: 2px;
+    border-radius: 9px; cursor: pointer; font-size: 13.5px; transition: background .12s;
+  }
+  .gs-item:hover { background: var(--primary-soft); }
+  .gs-item b { font-weight: 600; color: var(--text); }
+  .gs-item .gs-sub { flex: 1; min-width: 0; text-align: right; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gs-mark { background: #fff3bf; border-radius: 3px; padding: 0 1px; }
+  .gs-sec-more { font-size: 12px; color: var(--muted); margin: 4px 4px 0; }
+  .gs-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 16px 0 6px; }
+
   /* Toast */
   #toast {
     position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -1650,10 +1696,11 @@ function renderDash() {
       <button class="btn btn-ghost btn-sm" onclick="exportExcel()">⬇ 导出 Excel</button>` : ""}
     </div>
     <div class="panel" style="padding:12px 14px">
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="flex:none">🔍</span>
-        <input id="global-search" placeholder="搜任务 / 公告 / 文献 / 论坛帖 / 文档 / 会议…" style="flex:1" oninput="globalSearchDebounce()">
-        <button class="btn btn-ghost btn-sm" onclick="clearGlobalSearch()">清空</button>
+      <div class="gs-wrap">
+        <span class="gs-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+        <input id="global-search" class="gs-input" placeholder="搜任务 / 公告 / 文献 / 论坛帖 / 文档 / 会议…" autocomplete="off" oninput="globalSearchDebounce()">
+        <span class="gs-kbd"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+        <button type="button" class="gs-clear" id="gs-clear" title="清空" onclick="clearGlobalSearch()">✕</button>
       </div>
       <div id="search-results"></div>
     </div>
@@ -5438,11 +5485,22 @@ async function doDeleteForumReply(id) {
 
 /* ================= 全局搜索 ================= */
 let _searchTimer = null;
-function globalSearchDebounce() { clearTimeout(_searchTimer); _searchTimer = setTimeout(runGlobalSearch, 250); }
+function globalSearchDebounce() {
+  const el = $("global-search"), btn = $("gs-clear");
+  if (el && btn) btn.style.display = el.value.trim() ? "flex" : "none";
+  clearTimeout(_searchTimer); _searchTimer = setTimeout(runGlobalSearch, 250);
+}
 function clearGlobalSearch() {
   const el = $("global-search"); if (el) el.value = "";
+  const btn = $("gs-clear"); if (btn) btn.style.display = "none";
   const r = $("search-results"); if (r) r.innerHTML = "";
 }
+document.addEventListener("keydown", e => {
+  const el = $("global-search");
+  if (!el) return;
+  if ((e.ctrlKey || e.metaKey) && (e.key || "").toLowerCase() === "k") { e.preventDefault(); el.focus(); el.select(); }
+  else if (e.key === "Escape" && document.activeElement === el) { clearGlobalSearch(); el.blur(); }
+});
 function runGlobalSearch() {
   const box = $("search-results");
   if (!box) return;
@@ -5450,25 +5508,32 @@ function runGlobalSearch() {
   if (!q) { box.innerHTML = ""; return; }
   const d = state.data;
   const hit = s => String(s || "").toLowerCase().includes(q);
+  /* 命中关键词高亮（仅主文案） */
+  const hl = s => {
+    const t = String(s || ""); const i = t.toLowerCase().indexOf(q);
+    if (i < 0) return esc(t);
+    return esc(t.slice(0, i)) + '<mark class="gs-mark">' + esc(t.slice(i, i + q.length)) + "</mark>" + esc(t.slice(i + q.length));
+  };
   const groups = [];
-  const sec = (title, rows, render) => rows.length && groups.push(
-    `<div style="margin-top:10px"><b style="font-size:13px">${title}（${rows.length}）</b>${rows.slice(0, 5).map(render).join("")}
-     ${rows.length > 5 ? '<div class="hint" style="margin-top:4px">只显示前 5 条</div>' : ""}</div>`);
-  const item = (act, main, sub) => `<div style="padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13.5px" onclick="${act}">
-    <b>${main}</b>${sub ? `<span style="color:var(--muted)"> · ${sub}</span>` : ""}</div>`;
-  sec("📋 任务", d.tasks.filter(t => hit(t.title) || hit(t.detail) || hit(t.assignee)),
-    t => item("switchTab('tasks')", esc(t.title), esc(t.assignee || "") + (t.due_date ? " 截止 " + t.due_date : "")));
-  sec("📢 公告", d.announcements.filter(a => hit(a.title) || hit(a.content)),
-    a => item("switchTab('ann')", esc(a.title)));
-  sec("📚 文献", d.literature.filter(l => hit(l.title) || hit(l.authors) || hit(l.note) || hit(l.tags)),
-    l => item("switchTab('lit')", esc(l.title), esc(((l.authors || "") + " " + (l.year || "")).trim())));
-  sec("💬 论坛", (d.forumThreads || []).filter(t => hit(t.title) || hit(t.content)),
-    t => item(`openForumSearchResult(${t.id})`, esc(t.title), esc(t.name || "")));
-  sec("📄 文档", d.documents.filter(x => hit(x.title) || hit(x.file_name)),
-    x => item("switchTab('docs')", esc(x.title), esc(x.file_name || "")));
-  sec("📅 会议", d.meetings.filter(m => hit(m.title) || hit(m.agenda) || hit(m.notes)),
-    m => item("switchTab('meetings')", esc(m.title)));
-  box.innerHTML = groups.length ? groups.join("") : '<div class="hint" style="margin-top:8px">没有找到相关内容</div>';
+  const sec = (icon, title, rows, render) => rows.length && groups.push(
+    `<div class="gs-sec"><div class="gs-sec-title"><span>${icon}</span>${title}<span class="gs-sec-count">${rows.length}</span></div>
+     ${rows.slice(0, 5).map(render).join("")}
+     ${rows.length > 5 ? '<div class="gs-sec-more">只显示前 5 条</div>' : ""}</div>`);
+  const item = (act, main, sub) => `<div class="gs-item" onclick="${act}">
+    <b>${main}</b>${sub ? `<span class="gs-sub">${sub}</span>` : ""}</div>`;
+  sec("📋", "任务", d.tasks.filter(t => hit(t.title) || hit(t.detail) || hit(t.assignee)),
+    t => item("switchTab('tasks')", hl(t.title), esc(t.assignee || "") + (t.due_date ? " 截止 " + t.due_date : "")));
+  sec("📢", "公告", d.announcements.filter(a => hit(a.title) || hit(a.content)),
+    a => item("switchTab('ann')", hl(a.title)));
+  sec("📚", "文献", d.literature.filter(l => hit(l.title) || hit(l.authors) || hit(l.note) || hit(l.tags)),
+    l => item("switchTab('lit')", hl(l.title), esc(((l.authors || "") + " " + (l.year || "")).trim())));
+  sec("💬", "论坛", (d.forumThreads || []).filter(t => hit(t.title) || hit(t.content)),
+    t => item(`openForumSearchResult(${t.id})`, hl(t.title), esc(t.name || "")));
+  sec("📄", "文档", d.documents.filter(x => hit(x.title) || hit(x.file_name)),
+    x => item("switchTab('docs')", hl(x.title), esc(x.file_name || "")));
+  sec("📅", "会议", d.meetings.filter(m => hit(m.title) || hit(m.agenda) || hit(m.notes)),
+    m => item("switchTab('meetings')", hl(m.title)));
+  box.innerHTML = groups.length ? groups.join("") : `<div class="gs-empty">没有找到与「${esc(q)}」相关的内容</div>`;
 }
 function openForumSearchResult(id) {
   state.forumThreadId = id;
